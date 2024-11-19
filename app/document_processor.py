@@ -15,7 +15,6 @@ from langchain_community.document_loaders import (
     UnstructuredPowerPointLoader,
     BSHTMLLoader,
     UnstructuredMarkdownLoader, UnstructuredRTFLoader, UnstructuredEPubLoader, BibtexLoader,
-
 )
 
 from app.file_types import FileType
@@ -49,8 +48,6 @@ class DocumentProcessor:
         self.storage = storage
         self.temp_file_storage = temp_file_storage
         self.log_producer = log_producer
-
-
 
     @staticmethod
     def _get_document_loader(file_path: str, file_content: bytes) -> DocumentLoader:
@@ -98,25 +95,26 @@ class DocumentProcessor:
             else:
                 raise ValueError(f"Unsupported file type detected: {mime_type}")
         except Exception as e:
-            raise ValueError(f"Error while selecting document loader for {file_path}: {str(e)}")
+            raise ValueError(f"Failed to select document loader for {file_path}") from e
 
     async def process_documents(self, files: List[Union[UploadFile, BytesIO]]):
         """
         Process a list of documents by saving them, selecting the appropriate loader,
         and storing the processed document in storage.
         """
-        # Step 1: Save all files using TempFileStorage
-        saved_file_paths = await self.temp_file_storage.save_files(files)
+        try:
+            # Step 1: Save all files using TempFileStorage
+            saved_file_paths = await self.temp_file_storage.save_files(files)
 
-        # Step 2: Process each saved file
-        results = []
-        for saved_file in saved_file_paths:  # Use saved_file instead of zip
-            file_name = saved_file['file_name']  # Extract file name
-            temp_path = saved_file['temp_path']  # Extract the temporary file path
-            result = await self.process_document(temp_path, file_name)  # Pass filename along with temp path
-            results.append(result)
+            # Step 2: Process each saved file
+            for saved_file in saved_file_paths:  # Use saved_file instead of zip
+                file_name = saved_file['file_name']  # Extract file name
+                temp_path = saved_file['temp_path']  # Extract the temporary file path
+                await self.process_document(temp_path, file_name)  # Pass filename along with temp path
 
-        return results
+        except Exception as e:
+            # Log a general error message with the exception details
+            raise Exception(f"Failed to process documents --> {str(e)}")
 
     async def process_document(self, temp_path: str, filename: str) -> str:
         """
@@ -137,7 +135,7 @@ class DocumentProcessor:
             # Step 1: Load the document using the appropriate loader
             loader = self._get_document_loader(temp_path, file_content)
             if loader is None:
-                raise ValueError("No suitable loader found for the file: {filename}")
+                raise ValueError(f"Failed to load document: {filename}")
             documents = loader.load()  # This will load a list of Document objects
 
             # Step 2: Process each document and serialize them
@@ -166,13 +164,12 @@ class DocumentProcessor:
                 size=len(combined_serialized_document),
             )
 
-            # Step 7: Return a success message
-            return f"Document '{filename}' uploaded successfully to storage."
+            # Step 7: log a success message
+            self.log_producer.log_info(f"Document '{filename}' uploaded successfully to storage.")
 
         except Exception as e:
-            # Log any errors that occur during the process
-            self.log_producer.log_error(f"Error processing document '{filename}' at {temp_path}: {str(e)}")
-            raise ValueError(f"Error processing document '{filename}': {str(e)}")
+            # Log a general error message for failed document processing
+            raise Exception(f"Failed to process document: {filename} --> {e}")
 
     def get_document_url(self, file_name: str) -> str:
         """
@@ -183,4 +180,4 @@ class DocumentProcessor:
                 self.storage.bucket, file_name
             )
         except Exception as e:
-            raise RuntimeError(f"Failed to generate URL for {file_name}: {str(e)}")
+            raise Exception(f"Failed to generate URL for {file_name}") from e

@@ -8,11 +8,12 @@ class LogProducer:
         self.producer = Producer(kafka_config)
         self.topic = topic
 
-    def produce_log(self, log_message: str, log_level: str = "INFO"):
+    def produce_log(self, log_message: str, log_level: str):
         log_data = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "log_level": log_level,
             "message": log_message,
+            "service": "document-parser"
         }
 
         try:

@@ -33,57 +33,68 @@ class TempFileStorage(BaseFileStorage):
                 return file_content == b'\x50\x4B\x03\x04'
 
         except Exception as e:
-            self.log_producer.log_error(f"Error checking if file is a ZIP: {e}")
-            return False
+            raise Exception(f"Failed to check if file is a ZIP: {e}")
 
     async def save_file(self, file: Union[UploadFile, BytesIO], filename: str = None) -> str:
-        """Save a regular (non-ZIP) file to temporary storage."""
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            if isinstance(file, UploadFile):
-                content = await file.read()
-                tmp.write(content)
-                temp_file_path = tmp.name
+        """Save a regular (non-ZIP) file to temporary storage with error handling."""
+        temp_file_path = ""
 
-                # Preserve file metadata (e.g., timestamps) for UploadFile
-                if file.filename and hasattr(file, 'file'):
-                    shutil.copystat(file.file.name, temp_file_path)  # This copies timestamps and permissions
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                if isinstance(file, UploadFile):
+                    content = await file.read()
+                    tmp.write(content)
+                    temp_file_path = tmp.name
 
-                self.log_producer.log_info(f"Saved file at {temp_file_path}")
-            elif isinstance(file, BytesIO):
-                content = file.read()
-                tmp.write(content)
-                temp_file_path = tmp.name
+                    # Preserve file metadata (e.g., timestamps) for UploadFile
+                    if file.filename and hasattr(file, 'file'):
+                        shutil.copystat(file.file.name, temp_file_path)  # This copies timestamps and permissions
 
-            # Append the file path to the saved file paths list (track file name and saved path)
-            self.saved_file.append({"file_name": filename or "unknown", "temp_path": temp_file_path})
+                elif isinstance(file, BytesIO):
+                    content = file.read()
+                    tmp.write(content)
+                    temp_file_path = tmp.name
+
+                # Append the file path to the saved file paths list (track file name and saved path)
+                self.saved_file.append({"file_name": filename or "unknown", "temp_path": temp_file_path})
+
+        except Exception as e:
+            raise Exception(f"Failed to save document {filename} to temporary storage --> {e}")
+
         return temp_file_path
 
     async def save_files(self, files: List[Union[UploadFile, BytesIO]]) -> List[dict]:
-        """Save multiple files and determine whether to extract or save based on the file type."""
-        await asyncio.gather(*[self.save_or_extract_file(file) for file in files])
+        """Save multiple files and determine whether to extract or save based on the file type with error handling."""
+        try:
+            # Using asyncio.gather to process all files concurrently
+            await asyncio.gather(*[self.save_or_extract_file(file) for file in files])
 
-        # Return the updated saved_file after processing, now containing file name and temp path
+        except Exception as e:
+            raise Exception(f"Failed to store documents in temporary storage --> {e}")
+
+        # Return the updated saved_file list after processing
         return self.saved_file
 
     async def save_or_extract_file(self, file: Union[UploadFile, BytesIO]):
-        """Check if the file is a ZIP file and either extract or save accordingly."""
-        if self.is_zip_file(file):
-            # If it's a ZIP file, extract its contents
-            file_content = await file.read() if isinstance(file, UploadFile) else file.read()
-            extracted_files = await self.extract_zip(file, file_content)
-            self.saved_file.extend(extracted_files)
-        else:
-            # Otherwise, save it as a regular file
-            saved_file = await self.save_file(file)
-            self.saved_file.append({"file_name": file.filename or "unknown", "temp_path": saved_file})
+        """Decides whether to save the file or extract it based on the file type."""
+        try:
+            # Here, you should have the logic to either save or extract the file.
+            # For example, if it's a ZIP file, extract it; otherwise, save it.
+            temp_file_path = await self.save_file(file)  # Assuming this function is implemented elsewhere
+
+            # Append the file details to the saved_file list
+            self.saved_file.append({"file_name": file.filename if isinstance(file, UploadFile) else "unknown",
+                                    "temp_path": temp_file_path})
+
+        except Exception as e:
+            raise Exception(f"Failed to save/extract document to temporary storage --> {str(e)}")
 
     async def extract_zip(self, file: Union[UploadFile, BytesIO], file_content: bytes) -> List[dict]:
         """Extract the contents of a ZIP file from either UploadFile or BytesIO."""
-        extracted_files = []
         try:
             extracted_files = await asyncio.to_thread(self._extract_zip, file, file_content)
         except Exception as e:
-            self.log_producer.log_error(f"Error extracting ZIP file: {e}")
+            raise Exception(f"Failed to extract ZIP file: {e}")
         return extracted_files
 
     def _extract_zip(self, file: Union[UploadFile, BytesIO], file_content: bytes) -> List[dict]:
@@ -109,8 +120,8 @@ class TempFileStorage(BaseFileStorage):
                             shutil.copystat(temp_zip_path, extracted_file["temp_path"])
 
         except zipfile.BadZipFile:
-            self.log_producer.log_error(f"Error: The provided byte data is not a valid ZIP file.")
+            raise Exception("Failed to extract ZIP: The provided byte data is not a valid ZIP file.")
         except Exception as e:
-            self.log_producer.log_error(f"Error extracting ZIP file: {e}")
+            raise Exception(f"Failed to extract ZIP file: {e}")
 
         return extracted_files

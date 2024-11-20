@@ -19,7 +19,7 @@ class LogProducer:
         try:
             self.producer.produce(self.topic, json.dumps(log_data).encode("utf-8"))
             self.producer.flush()
-            print(f"Produced log message: {log_data}")
+            print(f"{log_data['timestamp']} | {log_data['log_level']} | {log_data['message']}\n")
         except Exception as e:
             print(f"Error producing log message: {e}")
 

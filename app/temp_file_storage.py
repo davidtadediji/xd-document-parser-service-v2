@@ -14,7 +14,7 @@ from app.log_producer import LogProducer
 class TempFileStorage(BaseFileStorage):
 
     def __init__(self, log_producer: LogProducer):
-        self.saved_file = []  # Track all saved/extracted file paths (file.name, file.temp_path)
+        self.saved_files = []  # Track all saved/extracted file paths (file.name, file.temp_path)
         self.log_producer = log_producer
 
     def is_zip_file(self, file: Union[UploadFile, BytesIO]) -> bool:
@@ -36,32 +36,38 @@ class TempFileStorage(BaseFileStorage):
             raise Exception(f"Failed to check if file is a ZIP: {e}")
 
     async def save_file(self, file: Union[UploadFile, BytesIO], filename: str = None) -> str:
-        """Save a regular (non-ZIP) file to temporary storage with error handling."""
         temp_file_path = ""
-
         try:
             with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                if isinstance(file, UploadFile):
+                # Specific type checking
+                if type(file).__name__ == 'UploadFile':
+                    self.log_producer.log_info("Saving UploadFile")
                     content = await file.read()
                     tmp.write(content)
                     temp_file_path = tmp.name
-
-                    # Preserve file metadata (e.g., timestamps) for UploadFile
-                    if file.filename and hasattr(file, 'file'):
-                        shutil.copystat(file.file.name, temp_file_path)  # This copies timestamps and permissions
-
-                elif isinstance(file, BytesIO):
+                    filename = filename or file.filename
+                elif type(file).__name__ == 'BytesIO':
+                    self.log_producer.log_info("Saving BytesIO")
                     content = file.read()
                     tmp.write(content)
                     temp_file_path = tmp.name
+                else:
+                    raise ValueError(f"Unsupported file type: {type(file)}")
 
-                # Append the file path to the saved file paths list (track file name and saved path)
-                self.saved_file.append({"file_name": filename or "unknown", "temp_path": temp_file_path})
+                # Track the file in saved_files
+                self.saved_files.append({
+                    "file_name": filename or "unknown",
+                    "temp_path": temp_file_path
+                })
 
         except Exception as e:
             raise Exception(f"Failed to save document {filename} to temporary storage --> {e}")
 
+        if not temp_file_path:
+            raise ValueError("Temporary file path is empty after save operation.")
+
         return temp_file_path
+
 
     async def save_files(self, files: List[Union[UploadFile, BytesIO]]) -> List[dict]:
         """Save multiple files and determine whether to extract or save based on the file type with error handling."""
@@ -72,19 +78,18 @@ class TempFileStorage(BaseFileStorage):
         except Exception as e:
             raise Exception(f"Failed to store documents in temporary storage --> {e}")
 
-        # Return the updated saved_file list after processing
-        return self.saved_file
+        # Return the updated saved_files list after processing
+        return self.saved_files
 
     async def save_or_extract_file(self, file: Union[UploadFile, BytesIO]):
         """Decides whether to save the file or extract it based on the file type."""
+        # print(file)
         try:
             # Here, you should have the logic to either save or extract the file.
             # For example, if it's a ZIP file, extract it; otherwise, save it.
-            temp_file_path = await self.save_file(file)  # Assuming this function is implemented elsewhere
+            await self.save_file(file, file.filename)  # Assuming this function is implemented elsewhere
 
-            # Append the file details to the saved_file list
-            self.saved_file.append({"file_name": file.filename if isinstance(file, UploadFile) else "unknown",
-                                    "temp_path": temp_file_path})
+
 
         except Exception as e:
             raise Exception(f"Failed to save/extract document to temporary storage --> {str(e)}")

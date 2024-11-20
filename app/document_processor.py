@@ -105,6 +105,7 @@ class DocumentProcessor:
         try:
             # Step 1: Save all files using TempFileStorage
             saved_file_paths = await self.temp_file_storage.save_files(files)
+            print(saved_file_paths)
 
             # Step 2: Process each saved file
             for saved_file in saved_file_paths:  # Use saved_file instead of zip
@@ -117,6 +118,7 @@ class DocumentProcessor:
             raise Exception(f"Failed to process documents --> {str(e)}")
 
     async def process_document(self, temp_path: str, filename: str) -> str:
+        # print(temp_path, filename)
         """
         Process a single document by loading it, serializing, and uploading to storage.
 

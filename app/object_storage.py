@@ -16,8 +16,8 @@ class MinIOStorage:
 
         self.minio = Minio(
             endpoint=self.endpoint,
-            access_key=settings.MINIO_ACCESS_KEY,
-            secret_key=settings.MINIO_SECRET_KEY,
+            access_key=settings.MINIO_ROOT_USER,
+            secret_key=settings.MINIO_ROOT_PASSWORD,
             secure=settings.MINIO_SECURE,
             region=settings.MINIO_REGION if settings.MINIO_REGION else None
         )

@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     # MinIO Configuration
     MINIO_HOST: str = "localhost"
     MINIO_PORT: int = 9000
-    MINIO_ACCESS_KEY: str = "minioadmin"
-    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_ROOT_USER: str = "minioadmin"
+    MINIO_ROOT_PASSWORD: str = "minioadmin"
     MINIO_BUCKET: str = "documents"
     MINIO_SECURE: bool = False
     MINIO_REGION: str = ""

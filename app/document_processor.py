@@ -16,6 +16,7 @@ from langchain_community.document_loaders import (
     BSHTMLLoader,
     UnstructuredMarkdownLoader, UnstructuredRTFLoader, UnstructuredEPubLoader, BibtexLoader,
 )
+from langchain_core.documents import Document
 
 from app.file_types import FileType
 from app.log_producer import LogProducer
@@ -49,8 +50,7 @@ class DocumentProcessor:
         self.temp_file_storage = temp_file_storage
         self.log_producer = log_producer
 
-    @staticmethod
-    def _get_document_loader(file_path: str, file_content: bytes) -> DocumentLoader:
+    def _get_document_loader(self, file_path: str, file_content: bytes) -> DocumentLoader:
         """
         Select the appropriate LangChain document loader based on the file type determined by 'filetype' library.
         """
@@ -62,6 +62,8 @@ class DocumentProcessor:
                 raise ValueError(f"Unable to detect file type for {file_path}.")
 
             mime_type = kind.mime
+
+            self.log_producer.log_info(f"{mime_type}")
 
             # Map MIME types to their corresponding document loaders
             if mime_type == FileType.PDF.value:
@@ -94,8 +96,9 @@ class DocumentProcessor:
                 return BibtexLoader(file_path)
             else:
                 raise ValueError(f"Unsupported file type detected: {mime_type}")
+
         except Exception as e:
-            raise ValueError(f"Failed to select document loader for {file_path}") from e
+            raise ValueError(f"Failed to select document loader for {file_path}: {e}")
 
     async def process_documents(self, files: List[Union[UploadFile, BytesIO]]):
         """
@@ -105,7 +108,7 @@ class DocumentProcessor:
         try:
             # Step 1: Save all files using TempFileStorage
             saved_file_paths = await self.temp_file_storage.save_files(files)
-            print(saved_file_paths)
+            self.log_producer.log_info(f"saved_file_paths: {saved_file_paths}")
 
             # Step 2: Process each saved file
             for saved_file in saved_file_paths:  # Use saved_file instead of zip
@@ -117,7 +120,7 @@ class DocumentProcessor:
             # Log a general error message with the exception details
             raise Exception(f"Failed to process documents --> {str(e)}")
 
-    async def process_document(self, temp_path: str, filename: str) -> str:
+    async def process_document(self, temp_path: str, filename: str):
         # print(temp_path, filename)
         """
         Process a single document by loading it, serializing, and uploading to storage.
@@ -138,35 +141,27 @@ class DocumentProcessor:
             loader = self._get_document_loader(temp_path, file_content)
             if loader is None:
                 raise ValueError(f"Failed to load document: {filename}")
-            documents = loader.load()  # This will load a list of Document objects
+            documents: List[Document] = loader.load()  # This will load a list of Document objects
 
             # Step 2: Process each document and serialize them
             serialized_documents = []
+            # Step 2: Process and upload the document without serialization
             for document in documents:
-                # Ensure we're working with a Document object, which supports the 'serialize' method
-                if hasattr(document, 'serialize'):
-                    serialized_documents.append(document.serialize())
-                else:
-                    raise ValueError("The loaded content is not a valid Document object.")
+                # Create a byte stream directly from the document's content
+                file_stream = BytesIO(document.page_content.encode('utf-8'))  # Assuming the document has 'page_content'
 
-            # Step 3: Combine all serialized document data if needed (here assuming they're all concatenated)
-            combined_serialized_document = b''.join(serialized_documents)
+                # Step 3: Set metadata for the file (Content-Type can be adjusted based on your needs)
+                metadata = {"Content-Type": "application/octet-stream"}  # Example metadata, adjust as needed
 
-            # Step 4: Create a byte stream from the serialized document
-            file_stream = BytesIO(combined_serialized_document)
+                # Step 4: Upload the processed document to MinIOStorage
+                self.storage.store_document(
+                    object_name=filename,
+                    metadata=metadata,
+                    content=file_stream,
+                    size=len(file_stream.getvalue()),
+                )
 
-            # Step 5: Set metadata for the file (Content-Type can be adjusted based on your needs)
-            metadata = {"Content-Type": "application/octet-stream"}  # Example metadata, adjust as needed
-
-            # Step 6: Upload the processed document to MinIOStorage
-            self.storage.store_document(
-                object_name=filename,
-                metadata=metadata,
-                content=file_stream,
-                size=len(combined_serialized_document),
-            )
-
-            # Step 7: log a success message
+            # Step 5: log a success message
             self.log_producer.log_info(f"Document '{filename}' uploaded successfully to storage.")
 
         except Exception as e:
